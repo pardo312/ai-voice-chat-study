@@ -9,29 +9,32 @@ import warnings
 import pygame
 import time
 import shutil
+import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Optional, List
 
-# Add parent directories to path to access existing models
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'FastWhisper'))
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'XTTS'))
-
-try:
-    # Try relative imports first (when used as a module)
-    from .config import *
-    from .ai_chat import AIChat
-except ImportError:
-    # Fall back to absolute imports (when run as a script)
-    import sys
-    import os
-    sys.path.append(os.path.dirname(__file__))
-    from config import *
-    from ai_chat import AIChat
+from ..config import (
+    SAMPLE_RATE, CHANNELS, TEMP_AUDIO_DIR, TEMP_OUTPUT_FILE,
+    XTTS_MODEL, XTTS_LANGUAGE, XTTS_VOICE_SAMPLE,
+    WHISPER_MODEL_SIZE, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE,
+    EXIT_COMMANDS, BUFFER_AUDIO_BEFORE_PLAYBACK, AUDIO_QUALITY_CHECK,
+    TTS_GENERATION_TIMEOUT, AUDIO_MIN_FILE_SIZE, AUDIO_VALIDATION_DELAY,
+    SAVE_AI_AUDIO, AI_AUDIO_DIR, AI_AUDIO_FILENAME_FORMAT,
+    MAX_SAVED_AUDIO_FILES, SHOW_TRANSCRIPTION, SHOW_AI_RESPONSE,
+    CLEANUP_ON_EXIT, VERBOSE_MODE
+)
+from .ai_chat import AIChat
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings("ignore")
 
+logger = logging.getLogger(__name__)
+
+
 class SpeechProcessor:
+    """Handles speech-to-text and text-to-speech operations"""
+    
     def __init__(self):
         self.whisper_model = None
         self.tts_model = None
@@ -44,7 +47,10 @@ class SpeechProcessor:
         # Initialize AI chat
         self._init_ai_chat()
         
-    def _init_pygame(self):
+        if VERBOSE_MODE:
+            logger.info("SpeechProcessor initialized")
+        
+    def _init_pygame(self) -> None:
         """Initialize pygame mixer for audio playback with enhanced buffering"""
         try:
             # Use larger buffer size for smoother playback when buffering is enabled
@@ -60,26 +66,32 @@ class SpeechProcessor:
             
             self.pygame_initialized = True
             if VERBOSE_MODE:
+                logger.info(f"Pygame mixer initialized (buffer: {buffer_size})")
                 print(f"✅ Pygame mixer initialized (buffer: {buffer_size})")
         except Exception as e:
+            logger.warning(f"Could not initialize pygame mixer: {e}")
             print(f"⚠️  Warning: Could not initialize pygame mixer: {e}")
             self.pygame_initialized = False
     
-    def _init_ai_chat(self):
+    def _init_ai_chat(self) -> None:
         """Initialize AI chat component"""
         try:
             self.ai_chat = AIChat()
             if VERBOSE_MODE:
+                logger.info("AI chat initialized")
                 print("✅ AI chat initialized")
         except Exception as e:
+            logger.warning(f"Could not initialize AI chat: {e}")
             print(f"⚠️  Warning: Could not initialize AI chat: {e}")
             self.ai_chat = None
     
-    def load_whisper_model(self):
+    def load_whisper_model(self) -> bool:
         """Load the FastWhisper model"""
         try:
             if VERBOSE_MODE:
                 print(f"🔄 Loading Whisper model ({WHISPER_MODEL_SIZE})...")
+            
+            logger.info(f"Loading Whisper model: {WHISPER_MODEL_SIZE}")
             
             from faster_whisper import WhisperModel
             
@@ -92,18 +104,23 @@ class SpeechProcessor:
             
             if VERBOSE_MODE:
                 print("✅ Whisper model loaded successfully")
+            logger.info("Whisper model loaded successfully")
             return True
             
         except Exception as e:
-            print(f"❌ Failed to load Whisper model: {e}")
-            print("💡 Tip: Make sure FastWhisper environment is set up correctly")
+            error_msg = f"Failed to load Whisper model: {e}"
+            logger.error(error_msg)
+            print(f"❌ {error_msg}")
+            print("💡 Tip: Make sure faster-whisper is installed: pip install faster-whisper")
             return False
     
-    def load_tts_model(self):
+    def load_tts_model(self) -> bool:
         """Load the XTTS model"""
         try:
             if VERBOSE_MODE:
                 print("🔄 Loading XTTS model...")
+            
+            logger.info(f"Loading XTTS model: {XTTS_MODEL}")
             
             from TTS.api import TTS
             
@@ -112,36 +129,45 @@ class SpeechProcessor:
             
             if VERBOSE_MODE:
                 print("✅ XTTS model loaded successfully")
+            logger.info("XTTS model loaded successfully")
             return True
             
         except Exception as e:
-            print(f"❌ Failed to load XTTS model: {e}")
-            print("💡 Tip: Make sure XTTS environment is set up correctly")
+            error_msg = f"Failed to load XTTS model: {e}"
+            logger.error(error_msg)
+            print(f"❌ {error_msg}")
+            print("💡 Tip: Make sure TTS is installed: pip install TTS")
             return False
     
-    def initialize_models(self):
+    def initialize_models(self) -> bool:
         """Initialize both speech models"""
         print("🚀 Initializing speech models...")
+        logger.info("Initializing speech models")
         
         whisper_success = self.load_whisper_model()
         tts_success = self.load_tts_model()
         
         if whisper_success and tts_success:
             print("✅ All models loaded successfully!")
+            logger.info("All speech models loaded successfully")
             return True
         else:
             print("❌ Failed to load one or more models")
+            logger.error("Failed to load one or more speech models")
             return False
     
-    def transcribe_audio(self, audio_file):
+    def transcribe_audio(self, audio_file: str) -> Optional[str]:
         """Transcribe audio file to text using FastWhisper"""
         if not self.whisper_model:
+            logger.error("Whisper model not loaded")
             print("❌ Whisper model not loaded")
             return None
         
         try:
             if VERBOSE_MODE:
                 print("🔄 Transcribing audio...")
+            
+            logger.info(f"Transcribing audio file: {audio_file}")
             
             # Transcribe the audio file
             segments, info = self.whisper_model.transcribe(audio_file, beam_size=5)
@@ -156,15 +182,20 @@ class SpeechProcessor:
             if VERBOSE_MODE:
                 print(f"🎯 Detected language: {info.language} (confidence: {info.language_probability:.2f})")
             
+            logger.info(f"Transcription completed. Language: {info.language}, confidence: {info.language_probability:.2f}")
+            
             return transcribed_text if transcribed_text else None
             
         except Exception as e:
-            print(f"❌ Transcription error: {e}")
+            error_msg = f"Transcription error: {e}"
+            logger.error(error_msg)
+            print(f"❌ {error_msg}")
             return None
     
-    def synthesize_speech(self, text):
+    def synthesize_speech(self, text: str) -> Optional[str]:
         """Convert text to speech using XTTS with buffering support"""
         if not self.tts_model:
+            logger.error("TTS model not loaded")
             print("❌ TTS model not loaded")
             return None
         
@@ -176,6 +207,8 @@ class SpeechProcessor:
             if VERBOSE_MODE:
                 print("🔄 Synthesizing speech...")
             
+            logger.info(f"Synthesizing speech for text: {text[:50]}...")
+            
             output_file = os.path.join(TEMP_AUDIO_DIR, TEMP_OUTPUT_FILE)
             
             # Remove existing output file to ensure clean generation
@@ -183,12 +216,14 @@ class SpeechProcessor:
                 try:
                     os.remove(output_file)
                 except Exception as e:
+                    logger.warning(f"Could not remove existing output file: {e}")
                     print(f"⚠️  Warning: Could not remove existing output file: {e}")
             
             # Split text into sentences for better TTS processing
             sentences = self._split_text_to_sentences(text)
-            print(f" > Text splitted to sentences.")
-            print(sentences)
+            if VERBOSE_MODE:
+                print(f" > Text split into {len(sentences)} sentences")
+                logger.debug(f"Text split into sentences: {sentences}")
             
             start_time = time.time()
             
@@ -196,6 +231,7 @@ class SpeechProcessor:
             if XTTS_VOICE_SAMPLE and os.path.exists(XTTS_VOICE_SAMPLE):
                 # Use voice cloning if sample is available
                 print("🦜 Using cloned voice...")
+                logger.info("Using voice cloning")
                 self.tts_model.tts_to_file(
                     text=text,
                     speaker_wav=XTTS_VOICE_SAMPLE,
@@ -204,6 +240,7 @@ class SpeechProcessor:
                 )
             else:
                 print("⚠️ Using default voice...")
+                logger.info("Using default voice")
                 # Use default voice
                 self.tts_model.tts_to_file(
                     text=text,
@@ -215,11 +252,16 @@ class SpeechProcessor:
             # Calculate real-time factor
             if os.path.exists(output_file):
                 import wave
-                with wave.open(output_file, 'rb') as wf:
-                    audio_duration = wf.getnframes() / wf.getframerate()
-                    real_time_factor = processing_time / audio_duration if audio_duration > 0 else 0
-                    print(f" > Processing time: {processing_time}")
-                    print(f" > Real-time factor: {real_time_factor}")
+                try:
+                    with wave.open(output_file, 'rb') as wf:
+                        audio_duration = wf.getnframes() / wf.getframerate()
+                        real_time_factor = processing_time / audio_duration if audio_duration > 0 else 0
+                        if VERBOSE_MODE:
+                            print(f" > Processing time: {processing_time:.2f}s")
+                            print(f" > Real-time factor: {real_time_factor:.2f}")
+                        logger.info(f"TTS processing time: {processing_time:.2f}s, RTF: {real_time_factor:.2f}")
+                except Exception as e:
+                    logger.warning(f"Could not calculate audio duration: {e}")
             
             # Wait for file stabilization if buffering is enabled
             if BUFFER_AUDIO_BEFORE_PLAYBACK:
@@ -231,6 +273,7 @@ class SpeechProcessor:
             if self._validate_audio_file(output_file):
                 if VERBOSE_MODE:
                     print("✅ Speech synthesis completed and validated")
+                logger.info("Speech synthesis completed successfully")
                 
                 # Save AI-generated audio to permanent storage
                 self._save_ai_audio(output_file)
@@ -238,13 +281,16 @@ class SpeechProcessor:
                 return output_file
             else:
                 print("❌ Speech synthesis failed - invalid output file")
+                logger.error("Speech synthesis failed - invalid output file")
                 return None
                 
         except Exception as e:
-            print(f"❌ Speech synthesis error: {e}")
+            error_msg = f"Speech synthesis error: {e}"
+            logger.error(error_msg)
+            print(f"❌ {error_msg}")
             return None
     
-    def _split_text_to_sentences(self, text):
+    def _split_text_to_sentences(self, text: str) -> List[str]:
         """Split text into sentences for better TTS processing"""
         import re
         # Simple sentence splitting - can be improved with more sophisticated NLP
@@ -252,7 +298,7 @@ class SpeechProcessor:
         sentences = [s.strip() for s in sentences if s.strip()]
         return sentences
     
-    def _validate_audio_file(self, audio_file):
+    def _validate_audio_file(self, audio_file: str) -> bool:
         """Validate that the audio file was generated correctly"""
         if not AUDIO_QUALITY_CHECK:
             return os.path.exists(audio_file)
@@ -261,6 +307,7 @@ class SpeechProcessor:
             if not os.path.exists(audio_file):
                 if VERBOSE_MODE:
                     print("❌ Audio file does not exist")
+                logger.warning("Audio file does not exist")
                 return False
             
             # Check file size
@@ -268,6 +315,7 @@ class SpeechProcessor:
             if file_size < AUDIO_MIN_FILE_SIZE:
                 if VERBOSE_MODE:
                     print(f"❌ Audio file too small: {file_size} bytes")
+                logger.warning(f"Audio file too small: {file_size} bytes")
                 return False
             
             # Additional validation: try to load the file with pygame
@@ -275,18 +323,21 @@ class SpeechProcessor:
                 pygame.mixer.music.load(audio_file)
                 if VERBOSE_MODE:
                     print(f"✅ Audio file validated: {file_size} bytes")
+                logger.debug(f"Audio file validated: {file_size} bytes")
                 return True
             except pygame.error as e:
                 if VERBOSE_MODE:
                     print(f"❌ Audio file corrupted: {e}")
+                logger.warning(f"Audio file corrupted: {e}")
                 return False
                 
         except Exception as e:
             if VERBOSE_MODE:
                 print(f"❌ Audio validation error: {e}")
+            logger.warning(f"Audio validation error: {e}")
             return False
     
-    def _save_ai_audio(self, audio_file):
+    def _save_ai_audio(self, audio_file: str) -> Optional[str]:
         """Save AI-generated audio to permanent storage"""
         if not SAVE_AI_AUDIO or not audio_file or not os.path.exists(audio_file):
             return None
@@ -316,6 +367,7 @@ class SpeechProcessor:
             
             if VERBOSE_MODE:
                 print(f"💾 AI audio saved: {filename}")
+            logger.info(f"AI audio saved: {filename}")
             
             # Clean up old files if limit is set
             self._cleanup_old_audio_files()
@@ -323,10 +375,11 @@ class SpeechProcessor:
             return saved_path
             
         except Exception as e:
+            logger.warning(f"Could not save AI audio: {e}")
             print(f"⚠️  Warning: Could not save AI audio: {e}")
             return None
     
-    def _cleanup_old_audio_files(self):
+    def _cleanup_old_audio_files(self) -> None:
         """Remove old audio files if MAX_SAVED_AUDIO_FILES limit is exceeded"""
         if MAX_SAVED_AUDIO_FILES <= 0:
             return  # No limit set
@@ -349,22 +402,27 @@ class SpeechProcessor:
                     os.remove(oldest_file)
                     if VERBOSE_MODE:
                         print(f"🧹 Removed old audio file: {os.path.basename(oldest_file)}")
+                    logger.info(f"Removed old audio file: {os.path.basename(oldest_file)}")
                 except Exception as e:
                     if VERBOSE_MODE:
                         print(f"⚠️  Could not remove old audio file: {e}")
+                    logger.warning(f"Could not remove old audio file: {e}")
                     
         except Exception as e:
             if VERBOSE_MODE:
                 print(f"⚠️  Warning: Could not cleanup old audio files: {e}")
+            logger.warning(f"Could not cleanup old audio files: {e}")
     
-    def play_audio(self, audio_file):
+    def play_audio(self, audio_file: str) -> bool:
         """Play audio file using pygame with enhanced buffering"""
         if not audio_file or not os.path.exists(audio_file):
+            logger.error("Audio file not found")
             print("❌ Audio file not found")
             return False
         
         try:
             if not self.pygame_initialized:
+                logger.error("Pygame mixer not initialized")
                 print("❌ Pygame mixer not initialized")
                 return False
             
@@ -376,6 +434,8 @@ class SpeechProcessor:
             
             if VERBOSE_MODE:
                 print("🔊 Playing audio...")
+            
+            logger.info(f"Playing audio file: {audio_file}")
             
             # Stop any currently playing audio
             if pygame.mixer.music.get_busy():
@@ -390,19 +450,23 @@ class SpeechProcessor:
             while pygame.mixer.music.get_busy():
                 if time.time() > playback_timeout:
                     print("⚠️  Audio playback timeout, stopping...")
+                    logger.warning("Audio playback timeout")
                     pygame.mixer.music.stop()
                     return False
                 time.sleep(0.1)
             
             if VERBOSE_MODE:
                 print("✅ Audio playback completed")
+            logger.info("Audio playback completed")
             return True
             
         except Exception as e:
-            print(f"❌ Audio playback error: {e}")
+            error_msg = f"Audio playback error: {e}"
+            logger.error(error_msg)
+            print(f"❌ {error_msg}")
             return False
     
-    def process_speech_cycle(self, audio_file):
+    def process_speech_cycle(self, audio_file: str) -> str:
         """Complete speech processing cycle: transcribe -> get AI response -> synthesize -> play"""
         # Step 1: Transcribe audio to text
         print("📝 Transcribing...")
@@ -410,15 +474,19 @@ class SpeechProcessor:
         
         if not transcribed_text:
             print("⚠️  No speech detected or transcription failed")
+            logger.info("No speech detected or transcription failed")
             return False
         
         # Show transcription if enabled
         if SHOW_TRANSCRIPTION:
             print(f"💬 You said: \"{transcribed_text}\"")
         
+        logger.info(f"Transcribed: {transcribed_text}")
+        
         # Check for exit commands
         if any(exit_cmd in transcribed_text.lower() for exit_cmd in EXIT_COMMANDS):
             print("👋 Exit command detected")
+            logger.info("Exit command detected")
             return "exit"
         
         # Step 2: Get AI response
@@ -428,11 +496,14 @@ class SpeechProcessor:
         else:
             # Fallback to echo mode if AI chat is not available
             print("⚠️  AI chat not available, falling back to echo mode")
+            logger.warning("AI chat not available, using echo mode")
             ai_response = transcribed_text
         
         # Show AI response if enabled
         if SHOW_AI_RESPONSE and ai_response != transcribed_text:
             print(f"🤖 AI responds: \"{ai_response}\"")
+        
+        logger.info(f"AI response: {ai_response}")
         
         # Step 3: Synthesize AI response to speech
         print("🎵 Generating speech...")
@@ -440,6 +511,7 @@ class SpeechProcessor:
         
         if not output_audio:
             print("❌ Speech synthesis failed")
+            logger.error("Speech synthesis failed")
             return False
         
         # Step 4: Play the generated audio
@@ -448,27 +520,30 @@ class SpeechProcessor:
         
         if playback_success:
             print("✅ Speech cycle completed")
+            logger.info("Speech cycle completed successfully")
             return True
         else:
             print("❌ Audio playback failed")
+            logger.error("Audio playback failed")
             return False
     
-    def cleanup(self):
+    def cleanup(self) -> None:
         """Clean up resources"""
         try:
             if self.pygame_initialized:
                 pygame.mixer.quit()
-        except:
-            pass
+                logger.info("Pygame mixer cleaned up")
+        except Exception as e:
+            logger.warning(f"Error cleaning up pygame: {e}")
         
         # Clean up temporary files if enabled
         if CLEANUP_ON_EXIT:
             self._cleanup_temp_files()
     
-    def _cleanup_temp_files(self):
+    def _cleanup_temp_files(self) -> None:
         """Remove temporary audio files"""
         temp_files = [
-            os.path.join(TEMP_AUDIO_DIR, TEMP_INPUT_FILE),
+            os.path.join(TEMP_AUDIO_DIR, "temp_input.wav"),
             os.path.join(TEMP_AUDIO_DIR, TEMP_OUTPUT_FILE)
         ]
         
@@ -478,8 +553,9 @@ class SpeechProcessor:
                     os.remove(file)
                     if VERBOSE_MODE:
                         print(f"🧹 Cleaned up: {file}")
-            except:
-                pass
+                    logger.info(f"Cleaned up temp file: {file}")
+            except Exception as e:
+                logger.warning(f"Could not clean up {file}: {e}")
     
     def __del__(self):
         """Destructor to ensure cleanup"""

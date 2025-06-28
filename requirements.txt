@@ -1,15 +1,25 @@
-# Audio processing dependencies
-pyaudio==0.2.11
-pygame==2.5.2
-numpy>=1.21.0
-
-# Utility dependencies
-pathlib
+# Core dependencies
+python-dotenv>=1.0.0
+pathlib2>=2.3.0; python_version < "3.4"
 typing-extensions>=4.0.0
+
+# Audio processing dependencies
+pyaudio>=0.2.11
+pygame>=2.5.2
+numpy>=1.21.0
 
 # AI API dependencies
 requests>=2.25.0
 
-# Speech processing (using existing setups)
-# faster-whisper
-# TTS
+# Speech processing dependencies
+faster-whisper>=0.10.0
+TTS>=0.22.0
+
+# Optional dependencies for better performance
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# Development dependencies (optional)
+pytest>=7.0.0
+black>=23.0.0
+flake8>=6.0.0

@@ -6,10 +6,17 @@ Handles audio device detection, validation, and selection with robust error hand
 import pyaudio
 import sys
 import platform
+import logging
 from typing import List, Dict, Optional, Tuple
+
+from ..config import VERBOSE_MODE
+
+logger = logging.getLogger(__name__)
+
 
 class AudioDeviceInfo:
     """Container for audio device information"""
+    
     def __init__(self, index: int, info: dict):
         self.index = index
         self.name = info.get('name', 'Unknown Device')
@@ -29,16 +36,20 @@ class AudioDeviceInfo:
         
         return f"[{self.index}] {self.name} - {'/'.join(device_type)} @ {self.default_sample_rate}Hz"
 
+
 class AudioManager:
     """Enhanced audio device manager with robust error handling"""
     
     def __init__(self):
         self.audio = None
-        self.available_input_devices = []
-        self.available_output_devices = []
-        self.selected_input_device = None
-        self.selected_output_device = None
+        self.available_input_devices: List[AudioDeviceInfo] = []
+        self.available_output_devices: List[AudioDeviceInfo] = []
+        self.selected_input_device: Optional[AudioDeviceInfo] = None
+        self.selected_output_device: Optional[AudioDeviceInfo] = None
         self.system_info = self._get_system_info()
+        
+        if VERBOSE_MODE:
+            logger.info("AudioManager initialized")
         
     def _get_system_info(self) -> Dict[str, str]:
         """Get system information for audio troubleshooting"""
@@ -52,6 +63,7 @@ class AudioManager:
         """Initialize PyAudio and discover devices"""
         try:
             print("🔍 Initializing audio system...")
+            logger.info("Initializing audio system")
             self.audio = pyaudio.PyAudio()
             
             # Discover and validate devices
@@ -63,10 +75,13 @@ class AudioManager:
                 return False
             
             print("✅ Audio system initialized successfully")
+            logger.info("Audio system initialized successfully")
             return True
             
         except Exception as e:
-            print(f"❌ Failed to initialize audio system: {e}")
+            error_msg = f"Failed to initialize audio system: {e}"
+            logger.error(error_msg)
+            print(f"❌ {error_msg}")
             self._print_troubleshooting_info()
             return False
     
@@ -75,6 +90,7 @@ class AudioManager:
         try:
             device_count = self.audio.get_device_count()
             print(f"🔍 Found {device_count} audio devices")
+            logger.info(f"Found {device_count} audio devices")
             
             self.available_input_devices = []
             self.available_output_devices = []
@@ -88,31 +104,44 @@ class AudioManager:
                         # Test if the input device actually works
                         if self._test_input_device(device):
                             self.available_input_devices.append(device)
-                            print(f"✅ Input: {device}")
+                            if VERBOSE_MODE:
+                                print(f"✅ Input: {device}")
+                            logger.debug(f"Working input device: {device}")
                         else:
-                            print(f"⚠️  Input (failed test): {device}")
+                            if VERBOSE_MODE:
+                                print(f"⚠️  Input (failed test): {device}")
+                            logger.warning(f"Input device failed test: {device}")
                     
                     if device.is_output_device:
                         self.available_output_devices.append(device)
-                        print(f"✅ Output: {device}")
+                        if VERBOSE_MODE:
+                            print(f"✅ Output: {device}")
+                        logger.debug(f"Output device: {device}")
                         
                 except Exception as e:
-                    print(f"⚠️  Device {i}: Error getting info - {e}")
+                    if VERBOSE_MODE:
+                        print(f"⚠️  Device {i}: Error getting info - {e}")
+                    logger.warning(f"Error getting device {i} info: {e}")
                     continue
             
             print(f"\n📊 Summary:")
             print(f"   🎤 Working input devices: {len(self.available_input_devices)}")
             print(f"   🔊 Output devices: {len(self.available_output_devices)}")
             
+            logger.info(f"Device discovery complete: {len(self.available_input_devices)} input, {len(self.available_output_devices)} output")
+            
             if len(self.available_input_devices) == 0:
                 print("❌ No working input devices found!")
+                logger.error("No working input devices found")
                 self._print_input_device_troubleshooting()
                 return False
             
             return True
             
         except Exception as e:
-            print(f"❌ Error during device discovery: {e}")
+            error_msg = f"Error during device discovery: {e}"
+            logger.error(error_msg)
+            print(f"❌ {error_msg}")
             return False
     
     def _test_input_device(self, device: AudioDeviceInfo, sample_rate: int = 16000) -> bool:
@@ -135,16 +164,19 @@ class AudioManager:
             stream.stop_stream()
             stream.close()
             
+            logger.debug(f"Input device test passed: {device.name}")
             return True
             
         except Exception as e:
             # Device failed the test
+            logger.debug(f"Input device test failed: {device.name} - {e}")
             return False
     
     def _select_devices(self) -> bool:
         """Select the best available input and output devices"""
         # Select input device
         if not self.available_input_devices:
+            logger.error("No input devices available for selection")
             print("❌ No input devices available for selection")
             return False
         
@@ -158,14 +190,16 @@ class AudioManager:
                 if device.index == default_index:
                     self.selected_input_device = device
                     print(f"🎤 Selected default input device: {device}")
+                    logger.info(f"Selected default input device: {device.name}")
                     break
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"Could not get default input device: {e}")
         
         # If no default device found, use the first working device
         if not self.selected_input_device:
             self.selected_input_device = self.available_input_devices[0]
             print(f"🎤 Selected first available input device: {self.selected_input_device}")
+            logger.info(f"Selected first available input device: {self.selected_input_device.name}")
         
         # Select output device (for future use)
         if self.available_output_devices:
@@ -176,14 +210,18 @@ class AudioManager:
                 for device in self.available_output_devices:
                     if device.index == default_index:
                         self.selected_output_device = device
-                        print(f"🔊 Selected default output device: {device}")
+                        if VERBOSE_MODE:
+                            print(f"🔊 Selected default output device: {device}")
+                        logger.info(f"Selected default output device: {device.name}")
                         break
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not get default output device: {e}")
             
             if not self.selected_output_device:
                 self.selected_output_device = self.available_output_devices[0]
-                print(f"🔊 Selected first available output device: {self.selected_output_device}")
+                if VERBOSE_MODE:
+                    print(f"🔊 Selected first available output device: {self.selected_output_device}")
+                logger.info(f"Selected first available output device: {self.selected_output_device.name}")
         
         return True
     
@@ -195,7 +233,7 @@ class AudioManager:
         """Get the index of the selected output device"""
         return self.selected_output_device.index if self.selected_output_device else None
     
-    def list_devices(self):
+    def list_devices(self) -> None:
         """Print a detailed list of all available devices"""
         print("\n🎵 Available Audio Devices:")
         print("=" * 50)
@@ -218,7 +256,7 @@ class AudioManager:
         
         print("=" * 50)
     
-    def _print_input_device_troubleshooting(self):
+    def _print_input_device_troubleshooting(self) -> None:
         """Print troubleshooting information for input device issues"""
         print("\n🔧 Input Device Troubleshooting:")
         print("=" * 40)
@@ -254,7 +292,7 @@ class AudioManager:
         print("- Restart the audio service/daemon")
         print("- Check if microphone is muted in system settings")
     
-    def _print_troubleshooting_info(self):
+    def _print_troubleshooting_info(self) -> None:
         """Print general troubleshooting information"""
         print("\n🔧 Audio System Troubleshooting:")
         print("=" * 40)
@@ -273,13 +311,14 @@ class AudioManager:
         print("4. Close other audio applications")
         print("5. Update audio drivers")
     
-    def cleanup(self):
+    def cleanup(self) -> None:
         """Clean up audio resources"""
         if self.audio:
             try:
                 self.audio.terminate()
-            except:
-                pass
+                logger.info("Audio system cleaned up")
+            except Exception as e:
+                logger.warning(f"Error during audio cleanup: {e}")
             self.audio = None
     
     def __del__(self):

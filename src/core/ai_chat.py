@@ -3,24 +3,27 @@ AI Chat Module for Voice Chat Application
 Handles communication with OpenRouter API for conversational AI responses
 """
 
-import os
 import json
 import requests
 import time
+import logging
 from typing import List, Dict, Optional
 
-try:
-    # Try relative imports first (when used as a module)
-    from .config import *
-except ImportError:
-    # Fall back to absolute imports (when run as a script)
-    import sys
-    import os
-    sys.path.append(os.path.dirname(__file__))
-    from config import *
+from ..config import (
+    OPENROUTER_API_KEY,
+    OPENROUTER_MODEL,
+    OPENROUTER_BASE_URL,
+    AI_SYSTEM_PROMPT,
+    CONVERSATION_MEMORY_LENGTH,
+    VERBOSE_MODE
+)
+
+logger = logging.getLogger(__name__)
 
 
 class AIChat:
+    """Handles AI conversation using OpenRouter API"""
+    
     def __init__(self):
         self.conversation_history: List[Dict[str, str]] = []
         self.api_key = OPENROUTER_API_KEY
@@ -31,13 +34,16 @@ class AIChat:
         
         # Validate API key
         if self.api_key == "your-api-key-here" or not self.api_key:
+            logger.warning("OpenRouter API key not configured!")
             print("⚠️  Warning: OpenRouter API key not configured!")
-            print("💡 Please set your API key in src/config.py")
+            print("💡 Please set OPENROUTER_API_KEY in your .env file")
             self.api_configured = False
         else:
             self.api_configured = True
+            if VERBOSE_MODE:
+                logger.info("AI Chat initialized with OpenRouter API")
     
-    def add_to_history(self, user_message: str, ai_response: str):
+    def add_to_history(self, user_message: str, ai_response: str) -> None:
         """Add a message exchange to conversation history"""
         self.conversation_history.append({
             "user": user_message,
@@ -47,6 +53,9 @@ class AIChat:
         # Keep only the last N exchanges
         if len(self.conversation_history) > self.max_history:
             self.conversation_history = self.conversation_history[-self.max_history:]
+            
+        if VERBOSE_MODE:
+            logger.debug(f"Added to history. Total exchanges: {len(self.conversation_history)}")
     
     def build_messages(self, user_input: str) -> List[Dict[str, str]]:
         """Build the messages array for the API call"""
@@ -85,8 +94,8 @@ class AIChat:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/your-username/voice-chat",  # Optional
-            "X-Title": "Voice Chat AI"  # Optional
+            "HTTP-Referer": "https://github.com/voice-chat-ai",
+            "X-Title": "Voice Chat AI"
         }
         
         payload = {
@@ -99,7 +108,7 @@ class AIChat:
         
         try:
             if VERBOSE_MODE:
-                print(f"🔄 Calling OpenRouter API with model: {self.model}")
+                logger.info(f"Calling OpenRouter API with model: {self.model}")
             
             response = requests.post(
                 f"{self.base_url}/chat/completions",
@@ -113,22 +122,29 @@ class AIChat:
                 ai_response = data["choices"][0]["message"]["content"].strip()
                 
                 if VERBOSE_MODE:
-                    print("✅ OpenRouter API call successful")
+                    logger.info("OpenRouter API call successful")
                 
                 return ai_response
             else:
-                print(f"❌ OpenRouter API error: {response.status_code}")
-                print(f"Response: {response.text}")
+                error_msg = f"OpenRouter API error: {response.status_code}"
+                logger.error(f"{error_msg} - {response.text}")
+                print(f"❌ {error_msg}")
                 return None
                 
         except requests.exceptions.Timeout:
-            print("❌ OpenRouter API timeout")
+            error_msg = "OpenRouter API timeout"
+            logger.error(error_msg)
+            print(f"❌ {error_msg}")
             return None
         except requests.exceptions.RequestException as e:
-            print(f"❌ OpenRouter API request error: {e}")
+            error_msg = f"OpenRouter API request error: {e}"
+            logger.error(error_msg)
+            print(f"❌ {error_msg}")
             return None
         except Exception as e:
-            print(f"❌ Unexpected error calling OpenRouter API: {e}")
+            error_msg = f"Unexpected error calling OpenRouter API: {e}"
+            logger.error(error_msg)
+            print(f"❌ {error_msg}")
             return None
     
     def get_response(self, user_input: str) -> str:
@@ -140,7 +156,7 @@ class AIChat:
         user_input = user_input.strip()
         
         if VERBOSE_MODE:
-            print(f"🤖 Getting AI response for: '{user_input}'")
+            logger.debug(f"Getting AI response for: '{user_input}'")
         
         # Build messages for API call
         messages = self.build_messages(user_input)
@@ -169,10 +185,11 @@ class AIChat:
             self.add_to_history(user_input, fallback)
             return fallback
     
-    def clear_history(self):
+    def clear_history(self) -> None:
         """Clear conversation history"""
         self.conversation_history = []
         if VERBOSE_MODE:
+            logger.info("Conversation history cleared")
             print("🧹 Conversation history cleared")
     
     def get_history_summary(self) -> str:
@@ -182,8 +199,10 @@ class AIChat:
         
         summary = f"Conversation history ({len(self.conversation_history)} exchanges):\n"
         for i, exchange in enumerate(self.conversation_history, 1):
-            summary += f"  {i}. User: {exchange['user'][:50]}...\n"
-            summary += f"     AI: {exchange['assistant'][:50]}...\n"
+            user_text = exchange['user'][:50] + "..." if len(exchange['user']) > 50 else exchange['user']
+            ai_text = exchange['assistant'][:50] + "..." if len(exchange['assistant']) > 50 else exchange['assistant']
+            summary += f"  {i}. User: {user_text}\n"
+            summary += f"     AI: {ai_text}\n"
         
         return summary
     

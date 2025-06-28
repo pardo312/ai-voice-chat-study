@@ -211,3 +211,20 @@ logs/
 # Cache directories
 .cache/
 cache/
+
+# Project-specific temporary files
+temp/
+ai-generated-audio/
+src/temp/
+*.wav
+*.mp3
+
+# Configuration files with sensitive data
+.env
+
+# Test files
+test_*.py
+*_test.py
+
+# Application logs
+voice_chat.log
