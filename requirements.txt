@@ -1,0 +1,15 @@
+# Audio processing dependencies
+pyaudio==0.2.11
+pygame==2.5.2
+numpy>=1.21.0
+
+# Utility dependencies
+pathlib
+typing-extensions>=4.0.0
+
+# AI API dependencies
+requests>=2.25.0
+
+# Speech processing (using existing setups)
+# faster-whisper
+# TTS
